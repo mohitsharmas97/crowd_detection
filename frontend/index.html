@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crowd Stress Detection & Stampede Prevention System</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <div class="logo-icon"></div>
+                <h1>Crowd Safety AI</h1>
+            </div>
+            <div class="header-status">
+                <div class="status-indicator" id="systemStatus">
+                    <div class="status-dot"></div>
+                    <span>System Active</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Grid -->
+        <div class="main-grid">
+            <!-- Left Column: Video Feed & Controls -->
+            <div class="left-column">
+                <!-- Control Panel -->
+                <div class="card control-panel">
+                    <h2>Control Panel</h2>
+                    <div class="control-buttons">
+                        <button class="btn btn-primary" id="webcamBtn">
+                            <span class="btn-icon">📹</span>
+                            Start Webcam
+                        </button>
+                        <button class="btn btn-secondary" id="uploadBtn">
+                            <span class="btn-icon">📁</span>
+                            Upload Video
+                        </button>
+                        <button class="btn btn-danger" id="stopBtn" disabled>
+                            <span class="btn-icon">⏹</span>
+                            Stop
+                        </button>
+                    </div>
+                    <input type="file" id="videoInput" accept="video/*" style="display: none;">
+                </div>
+
+                <!-- Video Feed -->
+                <div class="card video-container">
+                    <div class="card-header">
+                        <h2>Live Feed</h2>
+                        <div class="crowd-count" id="crowdCount">
+                            <span class="count-label">People:</span>
+                            <span class="count-value">0</span>
+                        </div>
+                    </div>
+                    <div class="video-wrapper">
+                        <img id="videoFeed" src="" alt="Video feed will appear here">
+                        <div class="video-placeholder" id="videoPlaceholder">
+                            <div class="placeholder-icon">🎥</div>
+                            <p>Start webcam or upload video to begin</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Digital Twin -->
+                <div class="card digital-twin-container">
+                    <div class="card-header">
+                        <h2>Digital Twin</h2>
+                        <span class="badge">Real-time</span>
+                    </div>
+                    <div class="video-wrapper">
+                        <img id="digitalTwinFeed" src="" alt="Digital twin visualization">
+                        <div class="video-placeholder" id="twinPlaceholder">
+                            <div class="placeholder-icon">🔮</div>
+                            <p>Digital twin will appear during processing</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Analytics & Alerts -->
+            <div class="right-column">
+                <!-- Risk Level Indicator -->
+                <div class="card risk-indicator" id="riskCard">
+                    <h2>Risk Assessment</h2>
+                    <div class="risk-display">
+                        <div class="risk-level" id="riskLevel">LOW</div>
+                        <div class="risk-bars">
+                            <div class="risk-bar low" id="barLow"></div>
+                            <div class="risk-bar medium" id="barMedium"></div>
+                            <div class="risk-bar high" id="barHigh"></div>
+                        </div>
+                    </div>
+                    <div class="risk-trend" id="riskTrend">
+                        <span>Trend:</span> <span id="trendValue">Stable</span>
+                    </div>
+                </div>
+
+                <!-- Alerts Panel -->
+                <div class="card alerts-panel">
+                    <div class="card-header">
+                        <h2>Active Alerts</h2>
+                        <span class="alert-count" id="alertCount">0</span>
+                    </div>
+                    <div class="alerts-list" id="alertsList">
+                        <div class="no-alerts">No active alerts</div>
+                    </div>
+                </div>
+
+                <!-- IoT Sensor Data -->
+                <div class="card iot-panel">
+                    <div class="card-header">
+                        <h2>IoT Sensors</h2>
+                        <span class="badge badge-success">Simulated</span>
+                    </div>
+                    <div class="sensor-grid" id="sensorGrid">
+                        <div class="sensor-item">
+                            <div class="sensor-icon">🌡️</div>
+                            <div class="sensor-info">
+                                <span class="sensor-label">Temperature</span>
+                                <span class="sensor-value" id="tempValue">--°C</span>
+                            </div>
+                        </div>
+                        <div class="sensor-item">
+                            <div class="sensor-icon">🔊</div>
+                            <div class="sensor-info">
+                                <span class="sensor-label">Noise Level</span>
+                                <span class="sensor-value" id="noiseValue">-- dB</span>
+                            </div>
+                        </div>
+                        <div class="sensor-item">
+                            <div class="sensor-icon">💧</div>
+                            <div class="sensor-info">
+                                <span class="sensor-label">Humidity</span>
+                                <span class="sensor-value" id="humidityValue">--%</span>
+                            </div>
+                        </div>
+                        <div class="sensor-item">
+                            <div class="sensor-icon">🌫️</div>
+                            <div class="sensor-info">
+                                <span class="sensor-label">Air Quality</span>
+                                <span class="sensor-value" id="aqiValue">AQI --</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Evacuation Advice -->
+                <div class="card evacuation-panel">
+                    <div class="card-header">
+                        <h2>AI Evacuation Advice</h2>
+                        <button class="btn-small btn-refresh" id="refreshAdvice">🔄</button>
+                    </div>
+                    <div class="advice-content" id="adviceContent">
+                        <p class="advice-loading">Click refresh to generate evacuation advice...</p>
+                    </div>
+                </div>
+
+                <!-- Authorities Notification -->
+                <div class="card notification-panel">
+                    <button class="btn btn-warning btn-full" id="notifyBtn">
+                        <span class="btn-icon">🚨</span>
+                        Notify Authorities
+                    </button>
+                    <p class="notification-text">Send emergency alert to authorities</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loader"></div>
+        <p>Processing...</p>
+    </div>
+
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="js/dashboard.js"></script>
+</body>
+</html>
