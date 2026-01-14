@@ -206,7 +206,11 @@ class RiskAnalyzer:
                                 if (0 <= ny < density_grid.shape[0] and 
                                     0 <= nx < density_grid.shape[1]):
                                     # Spread intensity based on density
-                                    spread_intensity = density_grid[ny, nx] / (density_grid.max() + 1e-6)
+                                    # Check for empty grid or zero max to prevent division errors
+                                    if density_grid.size == 0 or density_grid.max() == 0:
+                                        spread_intensity = 0
+                                    else:
+                                        spread_intensity = density_grid[ny, nx] / (density_grid.max() + 1e-6)
                                     new_spread[ny, nx] = max(
                                         new_spread[ny, nx],
                                         spread_map[y, x] * 0.7 * spread_intensity

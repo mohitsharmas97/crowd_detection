@@ -113,6 +113,10 @@ class YOLODetector:
         
         density_grid = np.zeros((grid_h, grid_w), dtype=np.float32)
         
+        # Early return if no centers to prevent errors
+        if not centers:
+            return density_grid
+        
         for center_x, center_y in centers:
             grid_x = min(center_x // grid_size, grid_w - 1)
             grid_y = min(center_y // grid_size, grid_h - 1)

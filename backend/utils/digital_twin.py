@@ -144,8 +144,13 @@ class DigitalTwin:
     
     def export_state(self):
         """Export current state as JSON-serializable dict"""
+        # Use len() to check for empty arrays - works with both numpy arrays and lists
+        velocities = []
+        if len(self.person_velocities) > 0:
+            velocities = [[float(vx), float(vy)] for vx, vy in self.person_velocities]
+        
         return {
             'positions': [[int(x), int(y)] for x, y in self.person_positions],
-            'velocities': [[float(vx), float(vy)] for vx, vy in self.person_velocities],
+            'velocities': velocities,
             'count': len(self.person_positions)
         }

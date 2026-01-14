@@ -43,7 +43,9 @@ class LLMAdvisor:
             return response.text
         
         except Exception as e:
-            print(f"LLM generation error: {e}")
+            print(f"LLM generation error ({type(e).__name__}): {e}")
+            import traceback
+            traceback.print_exc()
             return self._get_fallback_advice(risk_level, crowd_count)
     
     def _create_prompt(self, risk_level, crowd_count, hotspots, alerts):

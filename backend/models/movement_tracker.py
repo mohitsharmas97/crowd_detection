@@ -42,6 +42,7 @@ class MovementTracker:
             # Calculate movement magnitude
             mag, ang = cv2.cartToPolar(flow[..., 0], flow[..., 1])
             movement_data['optical_flow'] = flow
+            # Explicitly convert to native Python float for JSON serialization
             movement_data['movement_magnitude'] = float(np.mean(mag))
             
             # Detect erratic movements (high variance in direction)
