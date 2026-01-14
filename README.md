@@ -330,26 +330,4 @@ For better performance:
 - Crowd flow prediction
 - Historical analytics dashboard
 
-## Credits
 
-- **YOLOv8**: Ultralytics
-- **Datasets**: Kaggle community
-- **Icons**: Emoji (browser native)
-- **Fonts**: Google Fonts (Inter)
-
-## License
-
-MIT License - feel free to use for educational purposes.
-
-## Contact
-
-For issues or questions, please contact:
-- Phone: 9342037158
-
-## Acknowledgments
-
-This is a software-only project developed for educational purposes. No physical IoT devices are integrated.
-
----
-
-**Developed with 🤖 AI-Powered Intelligence**
