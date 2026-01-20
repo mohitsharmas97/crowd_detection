@@ -28,6 +28,12 @@ Thumbs.db
 # Environment variables
 .env
 
+# Test files
+test_smtp.py
+smtp_test_results.txt
+debug_env.py
+debug_video.py
+
 # YOLO weights cache
 *.pt
 !yolov8*.pt

@@ -18,6 +18,26 @@ from backend.utils.digital_twin import DigitalTwin
 from backend.utils.llm_advisor import LLMAdvisor
 from backend.utils.notifier import Notifier
 
+# NEW: Import advanced feature modules
+try:
+    from backend.models.pose_detector import PoseDetector
+    from backend.models.pre_panic_detector import PrePanicDetector
+    from backend.models.adaptive_threshold import AdaptiveThreshold
+    from backend.utils.silent_guidance import SilentGuidance
+    from backend.utils.micro_evacuation import MicroEvacuation
+    NEW_FEATURES_AVAILABLE = True
+    print("✅ Advanced features loaded successfully")
+except ImportError as e:
+    print(f"⚠️ Advanced features not available: {e}")
+    PoseDetector = None
+    PrePanicDetector = None
+    AdaptiveThreshold = None
+    SilentGuidance = None
+    MicroEvacuation = None
+    NEW_FEATURES_AVAILABLE = False
+
+import time  # For timestamps
+
 # Initialize Flask app
 app = Flask(__name__, static_folder='../frontend', static_url_path='')
 app.config['SECRET_KEY'] = Config.SECRET_KEY
@@ -39,6 +59,26 @@ iot_simulator = IoTSimulator()
 digital_twin = DigitalTwin()
 llm_advisor = LLMAdvisor()
 notifier = Notifier()
+
+# NEW: Initialize advanced feature components
+# DISABLED FOR PERFORMANCE - Set to False to keep it simple
+ENABLE_ADVANCED_FEATURES = False  # Change to True to enable advanced features
+
+if NEW_FEATURES_AVAILABLE and ENABLE_ADVANCED_FEATURES:
+    pose_detector = PoseDetector()
+    pre_panic_detector = PrePanicDetector()
+    adaptive_threshold = AdaptiveThreshold()
+    silent_guidance = SilentGuidance(frame_width=1280, frame_height=720)
+    micro_evacuation = MicroEvacuation()
+    print("✅ Advanced feature modules initialized")
+else:
+    pose_detector = None
+    pre_panic_detector = None
+    adaptive_threshold = None
+    silent_guidance = None
+    micro_evacuation = None
+    if not ENABLE_ADVANCED_FEATURES:
+        print("ℹ️ Advanced features disabled for better performance")
 
 # Global state
 current_state = {
@@ -335,8 +375,31 @@ def stream_video():
                 detections = yolo_detector.detect_people(frame)
                 current_state['crowd_count'] = detections['count']
                 
+                # NEW: Pose detection (if available)
+                poses = None
+                if ENABLE_ADVANCED_FEATURES and NEW_FEATURES_AVAILABLE and pose_detector and detections['boxes']:
+                    try:
+                        poses = pose_detector.detect_poses(frame, detections['boxes'])
+                    except Exception as pose_error:
+                        # Silently fail - pose detection is optional
+                        poses = None
+                
                 # Track movements
                 movement_data = movement_tracker.detect_movements(frame, detections['centers'])
+                
+                # NEW: Pre-panic signature detection
+                pre_panic_warnings = None
+                if ENABLE_ADVANCED_FEATURES and NEW_FEATURES_AVAILABLE and pre_panic_detector:
+                    try:
+                        pre_panic_sigs = pre_panic_detector.detect_signatures(
+                            movement_data, poses, detections['count']
+                        )
+                        if pre_panic_sigs['detected']:
+                            pre_panic_warnings = pre_panic_detector.get_warning_summary(pre_panic_sigs)
+                            print(f"\u26a0\ufe0f PRE-PANIC WARNING: {pre_panic_warnings}")
+                    except Exception as pre_panic_error:
+                        # Don't crash on pre-panic detection errors
+                        pre_panic_warnings = None
                 
                 # Generate IoT data
                 iot_data = iot_simulator.generate_sensor_data(
@@ -345,16 +408,68 @@ def stream_video():
                 )
                 current_state['iot_data'] = iot_data
                 
+                # NEW: Get adaptive thresholds (if available)
+                if ENABLE_ADVANCED_FEATURES and NEW_FEATURES_AVAILABLE and adaptive_threshold:
+                    try:
+                        thresholds = adaptive_threshold.get_thresholds()
+                        Config.LOW_RISK_THRESHOLD = thresholds[0]
+                        Config.MEDIUM_RISK_THRESHOLD = thresholds[1]
+                    except Exception:
+                        pass  # Use default thresholds
+                
+                # Calculate pressure map
+                pressure_map = None
+                if ENABLE_ADVANCED_FEATURES and NEW_FEATURES_AVAILABLE and detections['count'] > 0:
+                    try:
+                        # Create grids for pressure calculation
+                        h, w = frame.shape[:2]
+                        density_grid = yolo_detector.calculate_density_grid(frame.shape, detections['centers'])
+                        
+                        # Create speed grid from movement magnitude
+                        speed_grid = np.ones((h, w), dtype=np.float32) * movement_data.get('movement_magnitude', 0)
+                        
+                        # Get optical flow as direction grid
+                        direction_grid = movement_data.get('optical_flow')
+                        if direction_grid is not None and direction_grid.shape[:2] == (h, w):
+                            pressure_map = risk_analyzer.calculate_pressure_map(
+                                density_grid, speed_grid, direction_grid
+                            )
+                    except Exception as pressure_error:
+                        # Pressure map calculation failed - continue without it
+                        pressure_map = None
+                
                 # Calculate risk
                 frame_area = frame.shape[0] * frame.shape[1]
                 risk_result = risk_analyzer.calculate_risk_level(
                     detections['count'],
                     frame_area,
                     movement_data,
-                    iot_data
+                    iot_data,
+                    pressure_map
                 )
                 current_state['risk_level'] = risk_result['level']
                 current_state['alerts'] = risk_result['alerts']
+                
+                # NEW: Track panic initiators
+                if ENABLE_ADVANCED_FEATURES and NEW_FEATURES_AVAILABLE and poses:
+                    try:
+                        # Count panic gestures from poses
+                        panic_gesture_counts = []
+                        for pose in poses:
+                            if pose:
+                                panic_gesture_counts.append(len(pose.get('panic_gestures', [])))
+                            else:
+                                panic_gesture_counts.append(0)
+                        
+                        if any(panic_gesture_counts):
+                            timestamp = time.time()
+                            new_initiators = risk_analyzer.track_panic_initiators(
+                                detections['centers'], panic_gesture_counts, timestamp
+                            )
+                            if new_initiators:
+                                print(f"\u26a0\ufe0f {len(new_initiators)} new panic initiators detected!")
+                    except Exception:
+                        pass  # Don't crash on panic tracking errors
                 
                 # Automatic external notification for HIGH risk
                 if risk_result['level'] == 'HIGH':
@@ -377,6 +492,29 @@ def stream_video():
                 density_grid = yolo_detector.calculate_density_grid(frame.shape, detections['centers'])
                 heatmap_frame = video_processor.create_heatmap_overlay(annotated_frame, density_grid, alpha=0.4)
                 
+                # NEW: Add silent guidance overlays (if available and high risk)
+                if ENABLE_ADVANCED_FEATURES and NEW_FEATURES_AVAILABLE and silent_guidance and pressure_map is not None:
+                    guidance_data = silent_guidance.generate_guidance(pressure_map, detections['centers'])
+                    heatmap_frame = silent_guidance.overlay_guidance(heatmap_frame, guidance_data)
+                    
+                    # Micro-evacuation planning for HIGH risk
+                    if risk_result['level'] == 'HIGH' and detections['count'] > 5:
+                        target_groups = micro_evacuation.identify_target_groups(
+                            pressure_map, detections['centers'], min_group_size=3
+                        )
+                        if target_groups:
+                            evacuation_plans = micro_evacuation.generate_redirection_plan(
+                                target_groups,
+                                guidance_data.get('safe_zones', []),
+                                silent_guidance.exit_locations
+                            )
+                            pressure_release = micro_evacuation.calculate_pressure_release(
+                                evacuation_plans, pressure_map
+                            )
+                            print(f"\u2139\ufe0f Micro-evacuation: {len(target_groups)} groups, "
+                                  f"{pressure_release['people_redirected']} people, "
+                                  f"{pressure_release['estimated_reduction']*100:.1f}% reduction")
+                
                 # Add directional arrows
                 final_frame = video_processor.draw_directional_arrows(heatmap_frame, density_grid)
                 
@@ -385,6 +523,12 @@ def stream_video():
                 cv2.rectangle(final_frame, (10, 50), (250, 100), risk_color, -1)
                 cv2.putText(final_frame, f'Risk: {risk_result["level"]}', (20, 85),
                            cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3)
+                
+                # NEW: Add pre-panic warning banner
+                if pre_panic_warnings:
+                    cv2.rectangle(final_frame, (10, 110), (600, 160), (0, 165, 255), -1)
+                    cv2.putText(final_frame, 'PRE-PANIC WARNING', (20, 145),
+                               cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
                 
                 # Encode frame to base64
                 _, buffer = cv2.imencode('.jpg', final_frame)

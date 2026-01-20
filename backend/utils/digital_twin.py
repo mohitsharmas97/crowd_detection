@@ -154,3 +154,257 @@ class DigitalTwin:
             'velocities': velocities,
             'count': len(self.person_positions)
         }
+    
+    def predict_future_state(self, time_horizon=300, exits=None):
+        """
+        Predict crowd state in the future using social force model
+        
+        Args:
+            time_horizon: Seconds ahead to predict (default 300 = 5 minutes)
+            exits: List of exit positions
+            
+        Returns:
+            dict: Predicted future state
+        """
+        if not self.person_positions:
+            return {'positions': [], 'predicted_density': None}
+        
+        # Convert to numpy for simulation
+        positions = np.array(self.person_positions, dtype=np.float32)
+        velocities = np.array(self.person_velocities if self.person_velocities else 
+                            [(0, 0)] * len(positions), dtype=np.float32)
+        
+        # Default exits if not provided
+        if exits is None:
+            exits = [
+                (50, self.height // 2),
+                (self.width - 50, self.height // 2)
+            ]
+        
+        # Simulate forward (30 frames per second, time_horizon seconds)
+        dt = 1.0 / 30.0  # Time step
+        steps = min(time_horizon * 30, 9000)  # Limit to 9000 steps (5 min max)
+        
+        # Only simulate every 10th step for performance
+        for step in range(0, steps, 10):
+            positions, velocities = self._apply_social_force_model(
+                positions, velocities, exits, dt * 10
+            )
+        
+        # Convert back to list
+        future_positions = positions.tolist()
+        
+        # Calculate predicted density map
+        future_dist = self._calculate_density_from_positions(future_positions)
+        
+        return {
+            'positions': [[int(x), int(y)] for x, y in future_positions],
+            'predicted_density': future_dist,
+            'time_horizon': time_horizon
+        }
+    
+    def _apply_social_force_model(self, positions, velocities, exits, dt):
+        """
+        Apply social force model for one time step
+        
+        Args:
+            positions: Nx2 array of positions
+            velocities: Nx2 array of velocities
+            exits: List of exit positions
+            dt: Time step
+            
+        Returns:
+            tuple: (new_positions, new_velocities)
+        """
+        n_people = len(positions)
+        forces = np.zeros_like(positions)
+        
+        # Parameters
+        desired_speed = 1.4  # m/s
+        relaxation_time = 0.5
+        
+        # 1. Attractive force towards nearest exit
+        for i, pos in enumerate(positions):
+            # Find nearest exit
+            min_dist = float('inf')
+            nearest_exit = exits[0]
+            
+            for exit_pos in exits:
+                dist = np.linalg.norm(pos - np.array(exit_pos))
+                if dist < min_dist:
+                    min_dist = dist
+                    nearest_exit = exit_pos
+            
+            # Direction to exit
+            direction = np.array(nearest_exit) - pos
+            dist = np.linalg.norm(direction)
+            
+            if dist > 1:
+                direction = direction / dist
+                # Desired velocity
+                desired_vel = desired_speed * direction
+                # Force to achieve desired velocity
+                forces[i] += (desired_vel - velocities[i]) / relaxation_time
+        
+        # 2. Repulsive force from other people
+        for i in range(n_people):
+            for j in range(i + 1, n_people):
+                diff = positions[i] - positions[j]
+                dist = np.linalg.norm(diff)
+                
+                if dist < 50:  # Interaction range
+                    # Exponential repulsion
+                    repulsion_strength = 2.0 * np.exp(-dist / 10.0)
+                    direction = diff / (dist + 1e-6)
+                    forces[i] += repulsion_strength * direction
+                    forces[j] -= repulsion_strength * direction
+        
+        # 3. Repulsive force from walls
+        for i, pos in enumerate(positions):
+            # Left wall
+            if pos[0] < 50:
+                forces[i][0] += 5.0 * (50 - pos[0]) / 50.0
+            # Right wall
+            if pos[0] > self.width - 50:
+                forces[i][0] -= 5.0 * (pos[0] - (self.width - 50)) / 50.0
+            # Top wall
+            if pos[1] < 50:
+                forces[i][1] += 5.0 * (50 - pos[1]) / 50.0
+            # Bottom wall
+            if pos[1] > self.height - 50:
+                forces[i][1] -= 5.0 * (pos[1] - (self.height - 50)) / 50.0
+        
+        # Update velocities and positions
+        velocities += forces * dt
+        
+        # Limit maximum speed
+        max_speed = 3.0
+        speeds = np.linalg.norm(velocities, axis=1)
+        for i in range(n_people):
+            if speeds[i] > max_speed:
+                velocities[i] = velocities[i] / speeds[i] * max_speed
+        
+        positions += velocities * dt
+        
+        # Keep within bounds
+        positions[:, 0] = np.clip(positions[:, 0], 0, self.width)
+        positions[:, 1] = np.clip(positions[:, 1], 0, self.height)
+        
+        return positions, velocities
+    
+    def simulate_scenario(self, action, time_steps=300):
+        """
+        Simulate "what-if" scenario
+        
+        Args:
+            action: dict describing the action, e.g., {'type': 'close_exit', 'exit_id': 0}
+            time_steps: Number of time steps to simulate
+            
+        Returns:
+            dict: Simulation results
+        """
+        # Start with current state
+        positions = np.array(self.person_positions, dtype=np.float32) if self.person_positions else np.array([])
+        velocities = np.array(self.person_velocities if self.person_velocities else 
+                            [(0, 0)] * len(positions), dtype=np.float32)
+        
+        if len(positions) == 0:
+            return {'impact': 'No crowd to simulate', 'density_change': 0}
+        
+        # Default exits
+        exits = [
+            (50, self.height // 2),
+            (self.width - 50, self.height // 2),
+            (self.width // 2, 50)
+        ]
+        
+        # Modify scenario based on action
+        if action.get('type') == 'close_exit':
+            exit_id = action.get('exit_id', 0)
+            if 0 <= exit_id < len(exits):
+                exits.pop(exit_id)
+        elif action.get('type') == 'add_exit':
+            new_exit = action.get('position', (self.width // 2, self.height - 50))
+            exits.append(new_exit)
+        
+        # Simulate with modified scenario
+        dt = 1.0 / 30.0
+        density_samples = []
+        
+        for step in range(0, time_steps, 10):
+            positions, velocities = self._apply_social_force_model(
+                positions, velocities, exits, dt * 10
+            )
+            
+            # Sample density every 30 steps (1 second)
+            if step % 30 == 0:
+                density = self._calculate_average_density(positions)
+                density_samples.append(density)
+        
+        # Analyze impact
+        initial_density = density_samples[0] if density_samples else 0
+        final_density = density_samples[-1] if density_samples else 0
+        density_change = final_density - initial_density
+        
+        # Determine impact
+        if density_change > 0.2:
+            impact = f"⚠️ Pressure increases significantly (+{density_change*100:.0f}%)"
+        elif density_change < -0.2:
+            impact = f"✅ Pressure decreases significantly ({density_change*100:.0f}%)"
+        else:
+            impact = f"➡️ Minimal impact ({density_change*100:+.0f}%)"
+        
+        return {
+            'impact': impact,
+            'density_change': float(density_change),
+            'final_positions': positions.tolist(),
+            'density_over_time': [float(d) for d in density_samples]
+        }
+    
+    def _calculate_density_from_positions(self, positions):
+        """Calculate density map from positions"""
+        density = np.zeros((self.height, self.width), dtype=np.float32)
+        
+        for x, y in positions:
+            if 0 <= int(x) < self.width and 0 <= int(y) < self.height:
+                # Add gaussian blob
+                size = 20
+                sigma = 5
+                kernel = self._gaussian_kernel(size, sigma)
+                
+                x_start = max(0, int(x) - size // 2)
+                x_end = min(self.width, int(x) + size // 2)
+                y_start = max(0, int(y) - size // 2)
+                y_end = min(self.height, int(y) + size // 2)
+                
+                k_x_start = size // 2 - (int(x) - x_start)
+                k_x_end = k_x_start + (x_end - x_start)
+                k_y_start = size // 2 - (int(y) - y_start)
+                k_y_end = k_y_start + (y_end - y_start)
+                
+                density[y_start:y_end, x_start:x_end] += kernel[k_y_start:k_y_end, k_x_start:k_x_end]
+        
+        return density
+    
+    def _calculate_average_density(self, positions):
+        """Calculate average local density"""
+        if len(positions) < 2:
+            return 0.0
+        
+        # Use nearest neighbor distances
+        distances = []
+        for i, pos in enumerate(positions):
+            min_dist = float('inf')
+            for j, other_pos in enumerate(positions):
+                if i != j:
+                    dist = np.linalg.norm(pos - other_pos)
+                    if dist < min_dist:
+                        min_dist = dist
+            distances.append(min_dist)
+        
+        # Average density (inverse of average spacing)
+        avg_spacing = np.mean(distances)
+        density = 1.0 / (avg_spacing + 1) if avg_spacing > 0 else 0
+        
+        return float(density)
+

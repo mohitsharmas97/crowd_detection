@@ -7,8 +7,10 @@ class RiskAnalyzer:
     def __init__(self):
         self.risk_history = []
         self.alert_active = False
+        self.panic_initiators = []  # Track who started panic
+        self.pressure_history = []
         
-    def calculate_risk_level(self, crowd_count, frame_area, movement_data, iot_data=None):
+    def calculate_risk_level(self, crowd_count, frame_area, movement_data, iot_data=None, pressure_map=None):
         """
         Calculate overall risk level
         
@@ -17,13 +19,15 @@ class RiskAnalyzer:
             frame_area: Total frame area (width * height)
             movement_data: Movement analysis results
             iot_data: IoT sensor data (optional)
+            pressure_map: Pressure map (optional)
             
         Returns:
             dict: {
                 'level': 'LOW' | 'MEDIUM' | 'HIGH',
                 'score': float (0-1),
                 'factors': dict of contributing factors,
-                'alerts': list of alert messages
+                'alerts': list of alert messages,
+                'pressure_map': pressure map if provided
             }
         """
         # Calculate density (people per unit area)
@@ -237,3 +241,149 @@ class RiskAnalyzer:
             return 'decreasing'
         else:
             return 'stable'
+    
+    def calculate_pressure_map(self, density_grid, speed_grid, direction_grid):
+        """
+        Calculate crowd pressure map
+        Pressure = Density × Speed × Direction Conflict
+        
+        Args:
+            density_grid: 2D array of crowd density
+            speed_grid: 2D array of movement speeds
+            direction_grid: 2D array of movement directions (flow field)
+            
+        Returns:
+            2D array: Pressure map
+        """
+        if density_grid is None or speed_grid is None:
+            return None
+        
+        # Calculate direction conflict
+        direction_conflict = self._calculate_direction_conflict(direction_grid)
+        
+        # Pressure formula
+        pressure_map = density_grid * speed_grid * direction_conflict
+        
+        # Normalize to 0-1
+        if pressure_map.max() > 0:
+            pressure_map = pressure_map / pressure_map.max()
+        
+        # Store in history
+        self.pressure_history.append(pressure_map)
+        if len(self.pressure_history) > 30:
+            self.pressure_history.pop(0)
+        
+        return pressure_map
+    
+    def _calculate_direction_conflict(self, direction_grid):
+        """
+        Calculate directional conflict (opposing movements)
+        
+        Args:
+            direction_grid: 2D flow field (dx, dy) at each point
+            
+        Returns:
+            2D array: Conflict intensity (0-2, higher = more conflict)
+        """
+        if direction_grid is None or direction_grid.size == 0:
+            return np.ones_like(direction_grid[:,:,0]) if len(direction_grid.shape) > 2 else np.ones((10, 10))
+        
+        h, w = direction_grid.shape[:2]
+        conflict_map = np.ones((h, w), dtype=np.float32)
+        
+        # For each cell, compare with neighbors
+        for y in range(1, h-1):
+            for x in range(1, w-1):
+                current_dir = direction_grid[y, x]
+                
+                # Get neighboring directions
+                neighbors = [
+                    direction_grid[y-1, x],  # up
+                    direction_grid[y+1, x],  # down
+                    direction_grid[y, x-1],  # left
+                    direction_grid[y, x+1],  # right
+                ]
+                
+                # Calculate angle differences
+                conflicts = 0
+                for neighbor in neighbors:
+                    # Dot product to measure opposition
+                    dot = np.dot(current_dir, neighbor)
+                    # Negative dot = opposing directions
+                    if dot < -0.5:  # More than 120 degrees apart
+                        conflicts += 1
+                
+                # Conflict intensity (0-4 neighbors in conflict)
+                conflict_map[y, x] = 1.0 + (conflicts / 4.0)  # Range 1.0-2.0
+        
+        return conflict_map
+    
+    def track_panic_initiators(self, person_positions, panic_gestures, timestamps):
+        """
+        Identify panic initiators (first people showing panic)
+        
+        Args:
+            person_positions: List of (x, y) positions
+            panic_gestures: List of panic gesture counts per person
+            timestamps: Current timestamp
+            
+        Returns:
+            list: IDs of panic initiators
+        """
+        # Find people with panic gestures
+        current_panic = []
+        for i, gestures in enumerate(panic_gestures):
+            if gestures and gestures > 0:
+                current_panic.append({
+                    'id': i,
+                    'position': person_positions[i],
+                    'timestamp': timestamps,
+                    'gesture_count': gestures
+                })
+        
+        # Check if these are new panic cases (not in history)
+        new_initiators = []
+        existing_ids = [p['id'] for p in self.panic_initiators]
+        
+        for person in current_panic:
+            if person['id'] not in existing_ids:
+                new_initiators.append(person)
+                self.panic_initiators.append(person)
+        
+        # Keep only recent initiators (last 60 seconds)
+        self.panic_initiators = [
+            p for p in self.panic_initiators 
+            if timestamps - p['timestamp'] < 60
+        ]
+        
+        return new_initiators
+    
+    def measure_panic_spread_rate(self):
+        """
+        Calculate panic propagation velocity
+        
+        Returns:
+            dict: Spread rate metrics
+        """
+        if len(self.panic_initiators) < 2:
+            return {'rate': 0.0, 'spreading': False}
+        
+        # Sort by timestamp
+        sorted_panic = sorted(self.panic_initiators, key=lambda p: p['timestamp'])
+        
+        # Calculate spread over time
+        time_range = sorted_panic[-1]['timestamp'] - sorted_panic[0]['timestamp']
+        
+        if time_range > 0:
+            people_affected = len(sorted_panic)
+            rate = people_affected / time_range  # people/second
+            
+            return {
+                'rate': float(rate),
+                'spreading': rate > 0.1,  # More than 1 person every 10 seconds
+                'total_affected': people_affected,
+                'time_span': float(time_range)
+            }
+        
+        return {'rate': 0.0, 'spreading': False}
+
